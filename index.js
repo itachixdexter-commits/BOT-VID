@@ -1,5 +1,5 @@
 import pkg from 'whatsapp-web.js';
-const { Client, LocalAuth, MessageMedia, Buttons } = pkg;
+const { Client, LocalAuth, MessageMedia } = pkg;
 
 import qrcode from 'qrcode-terminal';
 import { exec } from 'child_process';
@@ -10,31 +10,37 @@ import path from 'path';
 const execPromise = promisify(exec);
 
 const client = new Client({
-    authStrategy: new LocalAuth({ dataPath: './session' }),
+    authStrategy: new LocalAuth({
+        dataPath: './session'
+    }),
     puppeteer: {
-        executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome',
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+        ]
     }
 });
 
 const state = new Map();
 
-function getPlatform(url) {
+client.on('qr', qr => {
+    console.log('SCAN QR');
+    qrcode.generate(qr, { small: true });
+});
+
+client.on('ready', () => {
+    console.log('BOT READY');
+});
+
+function detectPlatform(url) {
     if (url.includes('tiktok')) return 'TikTok';
     if (url.includes('instagram')) return 'Instagram';
     if (url.includes('youtu')) return 'YouTube';
     return 'Unknown';
 }
-
-client.on('qr', qr => {
-    console.log('QR:');
-    qrcode.generate(qr, { small: true });
-});
-
-client.on('ready', () => {
-    console.log('Bot Ready');
-});
 
 client.on('message', async msg => {
     const id = msg.from;
@@ -43,27 +49,10 @@ client.on('message', async msg => {
     if (text === '/start') {
         state.delete(id);
 
-        const buttons = new Buttons(
-            'أهلاً بك في بوت فيديوهات 🤖🎬\nأرسل رابط الفيديو',
-            [
-                { body: 'مساعدة' },
-                { body: 'عن البوت' }
-            ],
-            'بوت فيديوهات',
-            'اختر خيار'
+        await msg.reply(
+            '🎬 أهلاً بك في بوت فيديوهات 🤖\n\n' +
+            'ارسل رابط من (YouTube - TikTok - Instagram)'
         );
-
-        await client.sendMessage(id, buttons);
-        return;
-    }
-
-    if (text === 'مساعدة') {
-        await msg.reply('ارسل رابط من YouTube أو TikTok أو Instagram وسأقوم بتحميله لك');
-        return;
-    }
-
-    if (text === 'عن البوت') {
-        await msg.reply('بوت فيديوهات يقوم بتحميل الفيديوهات والصوتيات من الروابط');
         return;
     }
 
@@ -71,28 +60,22 @@ client.on('message', async msg => {
 
     if (urlMatch) {
         const url = urlMatch[0];
-        const platform = getPlatform(url);
+        const platform = detectPlatform(url);
 
         state.set(id, { url, platform });
 
-        const buttons = new Buttons(
-            `تم اكتشاف الرابط من ${platform} 🎬\nاختر نوع التحميل`,
-            [
-                { body: '🎥 فيديو' },
-                { body: '🎵 صوت' }
-            ],
-            'اختيار التحميل',
-            'حدد العملية'
+        await msg.reply(
+            `تم اكتشاف رابط من ${platform} 🎯\n\n` +
+            'اكتب:\n1️⃣ فيديو\n2️⃣ صوت'
         );
-
-        await client.sendMessage(id, buttons);
         return;
     }
 
     const user = state.get(id);
 
-    if (user && (text === '🎥 فيديو' || text === '🎵 صوت')) {
-        const isVideo = text === '🎥 فيديو';
+    if (user && (text === '1' || text === '2')) {
+        const isVideo = text === '1';
+
         const dir = path.join(process.cwd(), 'downloads');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir);
 
@@ -101,7 +84,7 @@ client.on('message', async msg => {
 
         await msg.reply('جاري التحميل... ⏳');
 
-        let cmd = '';
+        let cmd;
 
         if (isVideo) {
             cmd = `yt-dlp -f "bestvideo+bestaudio/best" --merge-output-format mp4 -o "${output}" "${user.url}"`;
@@ -116,16 +99,17 @@ client.on('message', async msg => {
             const file = files[0];
 
             if (!file) {
-                await msg.reply('فشل العثور على الملف');
+                await msg.reply('فشل التحميل');
                 state.delete(id);
                 return;
             }
 
             const filePath = path.join(dir, file);
-            const size = fs.statSync(filePath).size / (1024 * 1024);
 
-            if (size > 64) {
-                await msg.reply('الملف كبير جداً للواتساب');
+            const sizeMB = fs.statSync(filePath).size / (1024 * 1024);
+
+            if (sizeMB > 64) {
+                await msg.reply('الملف كبير على واتساب');
                 fs.unlinkSync(filePath);
                 state.delete(id);
                 return;
@@ -135,12 +119,13 @@ client.on('message', async msg => {
 
             await client.sendMessage(id, media, {
                 sendMediaAsDocument: !isVideo,
-                caption: 'تم التحميل بواسطة بوت فيديوهات 🎬'
+                caption: '🎬 بوت فيديوهات'
             });
 
             fs.unlinkSync(filePath);
+
         } catch (e) {
-            await msg.reply('حدث خطأ أثناء التحميل');
+            await msg.reply('حدث خطأ في التحميل');
         }
 
         state.delete(id);
@@ -148,7 +133,7 @@ client.on('message', async msg => {
     }
 
     if (user) {
-        await msg.reply('اختر زر أو أرسل رابط جديد');
+        await msg.reply('ارسل 1 أو 2 فقط');
     }
 });
 
