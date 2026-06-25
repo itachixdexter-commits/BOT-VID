@@ -1,7 +1,6 @@
 {
   "name": "bot-videos",
   "version": "2.0.0",
-  "description": "بوت فيديوهات",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -10,5 +9,8 @@
   "dependencies": {
     "whatsapp-web.js": "^1.34.7",
     "qrcode-terminal": "^0.12.0"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
